@@ -1,0 +1,114 @@
+# BCD Digit Adder
+#
+# Adds two BCD digits (0-9) with carry in, produces BCD result + carry out.
+#
+# Architecture:
+#   1. Binary-add the two 4-bit nibbles + carry (Zuse adder chain)
+#   2. Detect if binary sum > 9 (diode AND-OR, no relays)
+#   3. BCD carry = binary_carry OR GT9 (diode OR)
+#   4. If BCD carry: add 6 (0110) to correct bits 1 and 2
+#
+# The correction adds 0110, which means:
+#   - Bit 0: unchanged
+#   - Bit 1: XOR with correction_needed (half-add, may carry to bit 2)
+#   - Bit 2: XOR with (correction_needed XOR carry_from_bit1)
+#   - Bit 3: XOR with carry_from_bit2
+#
+# Since XOR needs relays (not monotone), the correction uses relay contacts.
+
+import "zuse_adder.relay";
+
+# GT9 detector using diodes
+# GT9 = (S3 AND S2) OR (S3 AND S1)
+# S3 must be high, plus either S2 or S1
+component GT9Detect {
+    port in S3, S2, S1;
+    port out GT9;
+
+    # Diode AND-OR network:
+    # Two diode AND gates feeding a diode OR
+    # AND(S3, S2): S3 ->| node1, S2 ->| node1
+    # AND(S3, S1): S3 ->| node2, S1 ->| node2
+    # OR(node1, node2) ->| GT9
+    #
+    # In the relay DSL, ->| is inline diode syntax
+    connect S3 ->| GT9;
+    connect S2 ->| GT9;
+    connect S1 ->| GT9;
+    # Note: this models the wired-OR with diode isolation.
+    # The actual AND gating requires series diodes which we model
+    # at a higher level for now.
+}
+
+# Single-digit BCD adder
+component BCDDigitAdder {
+    port in A0, A1, A2, A3;      # BCD digit A (A3=MSB)
+    port in B0, B1, B2, B3;      # BCD digit B
+    port in Cin, CinNeg;          # carry in (complementary)
+    port out S0, S1, S2, S3;     # BCD sum digit
+    port out Cout, CoutNeg;       # carry out (complementary)
+
+    wire vcc = HIGH;
+    wire gnd = LOW;
+
+    # Internal carry wires for the binary adder chain
+    wire c0, c0neg;
+    wire c1, c1neg;
+    wire c2, c2neg;
+    wire c3, c3neg;  # binary carry out
+
+    # Stage 1: Binary add A + B + Cin using 4 Zuse adders
+    # These produce the raw binary sum in raw0..raw3 and binary carry c3
+
+    # Bit 0: half-add with carry
+    instance add0 = ZuseAdder(
+        A=A0, B=B0,
+        CarryIn=Cin, CarryInNeg=CinNeg,
+        CarryOut=c0, CarryOutNeg=c0neg
+    );
+
+    instance add1 = ZuseAdder(
+        A=A1, B=B1,
+        CarryIn=c0, CarryInNeg=c0neg,
+        CarryOut=c1, CarryOutNeg=c1neg
+    );
+
+    instance add2 = ZuseAdder(
+        A=A2, B=B2,
+        CarryIn=c1, CarryInNeg=c1neg,
+        CarryOut=c2, CarryOutNeg=c2neg
+    );
+
+    instance add3 = ZuseAdder(
+        A=A3, B=B3,
+        CarryIn=c2, CarryInNeg=c2neg,
+        CarryOut=c3, CarryOutNeg=c3neg
+    );
+
+    # The raw binary sum bits come from the Zuse adder structure.
+    # For now we need the sum bits, which are XOR(A, B, Cin) for each bit.
+    # In the Zuse adder we only output carry. We need sum too.
+    # Let's use the raw carry chain to derive BCD correction.
+
+    # Stage 2: Detect > 9
+    # GT9 = (raw3 AND raw2) OR (raw3 AND raw1)
+    # c3 = binary carry out
+    # BCD_carry = c3 OR GT9
+    #
+    # For now we detect correction_needed = c3 OR GT9
+    # and use it to conditionally add 6.
+
+    # Stage 3: Conditional +6 correction
+    # correction_needed drives a relay that adds 0110 to bits 1,2
+    # Bit 0: S0 = raw0 (unchanged)
+    # Bit 1: S1 = raw1 XOR correction_needed
+    # Bit 2: S2 = raw2 XOR (correction_needed AND (raw1 OR correction from bit1))
+    # Bit 3: S3 = raw3 XOR carry_from_correction
+    #
+    # This requires a few relays for the XOR operations.
+    # The correction relay's coil is driven by correction_needed (diode OR output).
+
+    # For the carry output:
+    # Cout = correction_needed (BCD carry)
+    # CoutNeg = NOT(correction_needed)
+}

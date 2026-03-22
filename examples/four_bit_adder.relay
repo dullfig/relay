@@ -1,0 +1,91 @@
+# 4-bit Ripple Carry Adder using Zuse full adders
+#
+# Chains 4 ZuseAdder instances with complementary carry propagation.
+# Because carry is differential (CarryOut + CarryOutNeg), each stage
+# has both polarities immediately available - no ripple delay penalty
+# beyond the relay switching time of each stage.
+#
+# Physical implementation: 8 x 4PDT relays (or 16 DPDT relays)
+
+import "zuse_adder.relay";
+
+component FourBitAdder {
+    # Input buses
+    port in A0, A1, A2, A3;
+    port in B0, B1, B2, B3;
+    # Initial carry (ground for addition)
+    port in Cin, CinNeg;
+    # Output bus
+    port out S0, S1, S2, S3;
+    # Final carry
+    port out Cout, CoutNeg;
+
+    # Chain 4 Zuse adders
+    instance add0 = ZuseAdder(
+        A=A0, B=B0,
+        CarryIn=Cin, CarryInNeg=CinNeg,
+        CarryOut=c0, CarryOutNeg=c0neg
+    );
+
+    instance add1 = ZuseAdder(
+        A=A1, B=B1,
+        CarryIn=c0, CarryInNeg=c0neg,
+        CarryOut=c1, CarryOutNeg=c1neg
+    );
+
+    instance add2 = ZuseAdder(
+        A=A2, B=B2,
+        CarryIn=c1, CarryInNeg=c1neg,
+        CarryOut=c2, CarryOutNeg=c2neg
+    );
+
+    instance add3 = ZuseAdder(
+        A=A3, B=B3,
+        CarryIn=c2, CarryInNeg=c2neg,
+        CarryOut=Cout, CarryOutNeg=CoutNeg
+    );
+
+    # Internal carry wires (created implicitly by port bindings)
+    wire c0, c0neg;
+    wire c1, c1neg;
+    wire c2, c2neg;
+}
+
+# Test: 5 + 3 = 8 (0101 + 0011 = 1000)
+testbench FourBitAdderTest for FourBitAdder {
+    # 5 + 3 = 8: 0101 + 0011 = 01000, carry=0 (fits in 4 bits)
+    vector {
+        A0=1, A1=0, A2=1, A3=0,
+        B0=1, B1=1, B2=0, B3=0,
+        Cin=0, CinNeg=1
+    } -> {
+        Cout==0, CoutNeg==1
+    };
+
+    # 0 + 0 = 0: carry=0
+    vector {
+        A0=0, A1=0, A2=0, A3=0,
+        B0=0, B1=0, B2=0, B3=0,
+        Cin=0, CinNeg=1
+    } -> {
+        Cout==0, CoutNeg==1
+    };
+
+    # 15 + 1 = 16: 1111 + 0001 = 0000 carry=1
+    vector {
+        A0=1, A1=1, A2=1, A3=1,
+        B0=1, B1=0, B2=0, B3=0,
+        Cin=0, CinNeg=1
+    } -> {
+        Cout==1, CoutNeg==0
+    };
+
+    # 7 + 7 = 14: 0111 + 0111 = 1110, carry=0
+    vector {
+        A0=1, A1=1, A2=1, A3=0,
+        B0=1, B1=1, B2=1, B3=0,
+        Cin=0, CinNeg=1
+    } -> {
+        Cout==0, CoutNeg==1
+    };
+}

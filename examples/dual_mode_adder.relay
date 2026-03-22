@@ -1,0 +1,256 @@
+# Dual-Mode Nibble Adder (Binary / BCD)
+#
+# Mode=0: binary addition (for PC/address math)
+# Mode=1: BCD addition (for data math, digits 0-9)
+#
+# Architecture:
+#   1. Binary adder chain (4 FullAdderStage) -> raw sum + carry
+#   2. GT9 detect (relay AND-OR) -> correction needed
+#   3. Mode gating (relay AND) -> enable correction only in BCD mode
+#   4. Conditional +6 correction (relay muxes)
+#
+# Future optimization: GT9 detect and mode gating can use diodes.
+
+import "zuse_adder.relay";
+
+# Full adder stage with both Sum and Carry outputs.
+# Uses 4PDT relays: contacts for carry + sum on same coils.
+component FullAdderStage {
+    port in A, B;
+    port in CarryIn, CarryInNeg;
+    port out Sum;
+    port out CarryOut, CarryOutNeg;
+
+    wire vcc = HIGH;
+    wire gnd = LOW;
+
+    relay(4) R1, R2;
+
+    # R1 coil = A
+    connect A -> R1.coil;
+
+    # R1.c1-c2: carry intermediates
+    connect gnd -> R1.c1.nc;
+    connect CarryIn -> R1.c1.no;
+    connect CarryIn -> R1.c2.nc;
+    connect vcc -> R1.c2.no;
+
+    # R1.c3-c4: sum intermediates (conditional swap)
+    connect CarryIn -> R1.c3.nc;
+    connect CarryInNeg -> R1.c3.no;
+    connect CarryInNeg -> R1.c4.nc;
+    connect CarryIn -> R1.c4.no;
+
+    # R2 coil = B
+    connect B -> R2.coil;
+
+    # R2.c1: CarryOut
+    connect R1.c1.common -> R2.c1.nc;
+    connect R1.c2.common -> R2.c1.no;
+    connect R2.c1.common -> CarryOut;
+
+    # R2.c2: CarryOutNeg (inverter)
+    # Need complement carry data from R1. Since R1 is fully used,
+    # use a separate inverter relay.
+    relay R_inv;
+    connect CarryOut -> R_inv.coil;
+    connect vcc -> R_inv.c1.nc;
+    connect gnd -> R_inv.c1.no;
+    connect R_inv.c1.common -> CarryOutNeg;
+
+    # R2.c3: Sum
+    connect R1.c3.common -> R2.c3.nc;
+    connect R1.c4.common -> R2.c3.no;
+    connect R2.c3.common -> Sum;
+}
+
+# Dual-mode nibble adder
+component DualModeNibbleAdder {
+    port in A0, A1, A2, A3;
+    port in B0, B1, B2, B3;
+    port in Cin, CinNeg;
+    port in Mode;
+    port out S0, S1, S2, S3;
+    port out Cout, CoutNeg;
+
+    wire vcc = HIGH;
+    wire gnd = LOW;
+
+    # Internal carry wires
+    wire c0, c0neg;
+    wire c1, c1neg;
+    wire c2, c2neg;
+    wire c3, c3neg;
+    wire raw0, raw1, raw2, raw3;
+
+    # === Stage 1: Binary adder chain ===
+    instance add0 = FullAdderStage(
+        A=A0, B=B0, CarryIn=Cin, CarryInNeg=CinNeg,
+        Sum=raw0, CarryOut=c0, CarryOutNeg=c0neg
+    );
+    instance add1 = FullAdderStage(
+        A=A1, B=B1, CarryIn=c0, CarryInNeg=c0neg,
+        Sum=raw1, CarryOut=c1, CarryOutNeg=c1neg
+    );
+    instance add2 = FullAdderStage(
+        A=A2, B=B2, CarryIn=c1, CarryInNeg=c1neg,
+        Sum=raw2, CarryOut=c2, CarryOutNeg=c2neg
+    );
+    instance add3 = FullAdderStage(
+        A=A3, B=B3, CarryIn=c2, CarryInNeg=c2neg,
+        Sum=raw3, CarryOut=c3, CarryOutNeg=c3neg
+    );
+
+    # S0 always passes through (bit 0 unaffected by +6 correction)
+    connect raw0 -> S0;
+
+    # === Stage 2: GT9 detect ===
+    # GT9 = raw3 AND (raw2 OR raw1)
+    # Implement with two relays:
+    # R_gt9a: coil=raw3, passes (raw2 OR raw1) when raw3=1
+    # R_gt9b: coil=raw2, selects between raw1 (raw2=0) and vcc (raw2=1)
+    #   -> output = raw2 OR raw1
+
+    relay R_or21;
+    connect raw2 -> R_or21.coil;
+    connect raw1 -> R_or21.c1.nc;
+    connect vcc -> R_or21.c1.no;
+    # R_or21.c1.common = raw2 ? 1 : raw1 = raw2 OR raw1
+
+    wire gt9;
+    relay R_gt9;
+    connect raw3 -> R_gt9.coil;
+    connect gnd -> R_gt9.c1.nc;
+    connect R_or21.c1.common -> R_gt9.c1.no;
+    connect R_gt9.c1.common -> gt9;
+    # gt9 = raw3 ? (raw2 OR raw1) : 0 = raw3 AND (raw2 OR raw1)
+
+    # === Stage 3: Mode gating ===
+    # correction_needed = Mode AND (c3 OR gt9)
+    # First: c3_or_gt9 = binary_carry OR gt9
+    relay R_or_carry;
+    connect c3 -> R_or_carry.coil;
+    connect gt9 -> R_or_carry.c1.nc;
+    connect vcc -> R_or_carry.c1.no;
+    # R_or_carry.c1.common = c3 ? 1 : gt9 = c3 OR gt9
+
+    wire correction;
+    relay R_mode;
+    connect Mode -> R_mode.coil;
+    connect gnd -> R_mode.c1.nc;
+    connect R_or_carry.c1.common -> R_mode.c1.no;
+    connect R_mode.c1.common -> correction;
+    # correction = Mode ? (c3 OR gt9) : 0
+
+    # === Stage 4: Conditional +6 correction ===
+    # When correction=1, add 0110 to raw sum:
+    #   bit0: unchanged (0 in 0110)
+    #   bit1: flip (1 in 0110), carry1 = raw1
+    #   bit2: flip (1 in 0110) + carry1, carry2 computed
+    #   bit3: add carry2
+    #
+    # S1 = correction ? NOT(raw1) : raw1
+    relay R_s1;
+    connect correction -> R_s1.coil;
+    connect raw1 -> R_s1.c1.nc;
+    # For NOT(raw1): use an inverter relay
+    wire raw1_inv;
+    relay R_raw1inv;
+    connect raw1 -> R_raw1inv.coil;
+    connect vcc -> R_raw1inv.c1.nc;
+    connect gnd -> R_raw1inv.c1.no;
+    connect R_raw1inv.c1.common -> raw1_inv;
+    connect raw1_inv -> R_s1.c1.no;
+    connect R_s1.c1.common -> S1;
+
+    # carry from bit1 correction: corr1 = correction AND raw1
+    wire corr1;
+    relay R_corr1;
+    connect correction -> R_corr1.coil;
+    connect gnd -> R_corr1.c1.nc;
+    connect raw1 -> R_corr1.c1.no;
+    connect R_corr1.c1.common -> corr1;
+
+    # S2: adding 1 (from 0110) + corr1 to raw2
+    # sum2 = raw2 XOR 1 XOR corr1 = NOT(raw2) XOR corr1 = raw2 XNOR corr1
+    # When correction=0: S2 = raw2
+    # When correction=1: S2 = raw2 XNOR corr1
+    #   corr1=0 (raw1 was 0): S2 = NOT(raw2) [just flip bit2]
+    #   corr1=1 (raw1 was 1): S2 = raw2       [flip cancels with carry]
+    # So: S2 = correction ? (corr1 ? raw2 : NOT(raw2)) : raw2
+    #       = correction ? (raw1 ? raw2 : NOT(raw2)) : raw2
+    wire raw2_inv;
+    relay R_raw2inv;
+    connect raw2 -> R_raw2inv.coil;
+    connect vcc -> R_raw2inv.c1.nc;
+    connect gnd -> R_raw2inv.c1.no;
+    connect R_raw2inv.c1.common -> raw2_inv;
+
+    wire s2_corrected;
+    relay R_s2sel;
+    connect corr1 -> R_s2sel.coil;
+    connect raw2_inv -> R_s2sel.c1.nc;
+    connect raw2 -> R_s2sel.c1.no;
+    connect R_s2sel.c1.common -> s2_corrected;
+
+    relay R_s2mux;
+    connect correction -> R_s2mux.coil;
+    connect raw2 -> R_s2mux.c1.nc;
+    connect s2_corrected -> R_s2mux.c1.no;
+    connect R_s2mux.c1.common -> S2;
+
+    # carry from bit2 correction:
+    # We added 1+corr1 to raw2.
+    # carry2 = (raw2 AND 1) OR (raw2 AND corr1) OR (1 AND corr1)
+    #        = raw2 OR corr1 (since we're adding at least 1)
+    # Wait: only when correction=1. When correction=0, carry2=0.
+    # carry2 = correction AND (raw2 OR corr1)
+    wire raw2_or_corr1;
+    relay R_or2c;
+    connect raw2 -> R_or2c.coil;
+    connect corr1 -> R_or2c.c1.nc;
+    connect vcc -> R_or2c.c1.no;
+    connect R_or2c.c1.common -> raw2_or_corr1;
+
+    wire carry2;
+    relay R_carry2;
+    connect correction -> R_carry2.coil;
+    connect gnd -> R_carry2.c1.nc;
+    connect raw2_or_corr1 -> R_carry2.c1.no;
+    connect R_carry2.c1.common -> carry2;
+
+    # S3 = raw3 XOR carry2
+    # When correction=0: carry2=0, S3=raw3
+    # When correction=1: S3 = raw3 XOR carry2
+    wire raw3_inv;
+    relay R_raw3inv;
+    connect raw3 -> R_raw3inv.coil;
+    connect vcc -> R_raw3inv.c1.nc;
+    connect gnd -> R_raw3inv.c1.no;
+    connect R_raw3inv.c1.common -> raw3_inv;
+
+    relay R_s3;
+    connect carry2 -> R_s3.coil;
+    connect raw3 -> R_s3.c1.nc;
+    connect raw3_inv -> R_s3.c1.no;
+    connect R_s3.c1.common -> S3;
+
+    # === Carry out ===
+    # Binary mode: Cout = c3
+    # BCD mode: Cout = correction (= c3 OR gt9, already gated by Mode)
+    # Combined: Cout = c3 OR correction
+    # = c3 OR (Mode AND (c3 OR gt9))
+    # When Mode=0: Cout = c3. When Mode=1: Cout = c3 OR gt9.
+    relay R_cout;
+    connect c3 -> R_cout.coil;
+    connect correction -> R_cout.c1.nc;
+    connect vcc -> R_cout.c1.no;
+    connect R_cout.c1.common -> Cout;
+
+    # CoutNeg
+    relay R_coutinv;
+    connect Cout -> R_coutinv.coil;
+    connect vcc -> R_coutinv.c1.nc;
+    connect gnd -> R_coutinv.c1.no;
+    connect R_coutinv.c1.common -> CoutNeg;
+}

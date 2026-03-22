@@ -1,0 +1,13 @@
+[project]
+name = "relaydsl"
+version = "0.1.0"
+description = "DSL and simulator for relay-based circuit design"
+requires-python = ">=3.11"
+dependencies = []
+
+[project.optional-dependencies]
+dev = ["pytest", "pytest-cov"]
+viz = ["matplotlib"]
+
+[project.scripts]
+relay-sim = "relaydsl.__main__:main"

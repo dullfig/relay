@@ -1,0 +1,102 @@
+# Zuse Full Adder -- Konrad Zuse's 1-bit full adder
+# Uses 2 four-pole relays with complementary (differential) carry.
+#
+# The schematic (zuseadd.gif) shows "Relay4" = 4PDT (4-pole double-throw).
+# Each relay has 4 changeover contacts (A, B, C, D in the schematic).
+#
+# CarryOut = majority(A, B, CarryIn)
+# CarryOutNeg = NOT(majority(A, B, CarryIn))
+#
+# R1 (coil=A) generates 4 intermediate signals using constants and carry:
+#   c1: A ? CarryIn : 0       (for carry)
+#   c2: A ? 1 : CarryIn       (for carry)
+#   c3: A ? CarryInNeg : 1    (for carry complement)
+#   c4: A ? 0 : CarryInNeg    (for carry complement)
+#
+# R2 (coil=B) selects from intermediates:
+#   c1: B ? R1.c2 : R1.c1 -> CarryOut
+#   c2: B ? R1.c4 : R1.c3 -> CarryOutNeg
+#
+# With a physical DPDT relay, each Relay4 maps to two DPDT relays
+# with coils wired in parallel.
+
+component ZuseAdder {
+    port in A, B;
+    port in CarryIn, CarryInNeg;
+    port out CarryOut, CarryOutNeg;
+
+    wire vcc = HIGH;
+    wire gnd = LOW;
+
+    # 4PDT relays -- relay(4) declares 4 contact pairs per relay
+    relay(4) R1, R2;
+
+    # R1 coil driven by A
+    connect A -> R1.coil;
+
+    # R1 contact 1: NC=GND, NO=CarryIn -> A ? CarryIn : 0
+    connect gnd -> R1.c1.nc;
+    connect CarryIn -> R1.c1.no;
+
+    # R1 contact 2: NC=CarryIn, NO=VCC -> A ? 1 : CarryIn
+    connect CarryIn -> R1.c2.nc;
+    connect vcc -> R1.c2.no;
+
+    # R1 contact 3: NC=VCC, NO=CarryInNeg -> A ? CarryInNeg : 1
+    connect vcc -> R1.c3.nc;
+    connect CarryInNeg -> R1.c3.no;
+
+    # R1 contact 4: NC=CarryInNeg, NO=GND -> A ? 0 : CarryInNeg
+    connect CarryInNeg -> R1.c4.nc;
+    connect gnd -> R1.c4.no;
+
+    # R2 coil driven by B
+    connect B -> R2.coil;
+
+    # R2 contact 1: selects carry output
+    connect R1.c1.common -> R2.c1.nc;
+    connect R1.c2.common -> R2.c1.no;
+    connect R2.c1.common -> CarryOut;
+
+    # R2 contact 2: selects carry complement
+    connect R1.c3.common -> R2.c2.nc;
+    connect R1.c4.common -> R2.c2.no;
+    connect R2.c2.common -> CarryOutNeg;
+}
+
+# Test the carry function for all 8 input combinations
+testbench ZuseAdderTest for ZuseAdder {
+    instance dut = ZuseAdder();
+
+    # A=0, B=0, Cin=0 -> Cout=0
+    vector { A=0, B=0, CarryIn=0, CarryInNeg=1 }
+        -> { CarryOut==0, CarryOutNeg==1 };
+
+    # A=1, B=0, Cin=0 -> Cout=0
+    vector { A=1, B=0, CarryIn=0, CarryInNeg=1 }
+        -> { CarryOut==0, CarryOutNeg==1 };
+
+    # A=0, B=1, Cin=0 -> Cout=0
+    vector { A=0, B=1, CarryIn=0, CarryInNeg=1 }
+        -> { CarryOut==0, CarryOutNeg==1 };
+
+    # A=1, B=1, Cin=0 -> Cout=1
+    vector { A=1, B=1, CarryIn=0, CarryInNeg=1 }
+        -> { CarryOut==1, CarryOutNeg==0 };
+
+    # A=0, B=0, Cin=1 -> Cout=0
+    vector { A=0, B=0, CarryIn=1, CarryInNeg=0 }
+        -> { CarryOut==0, CarryOutNeg==1 };
+
+    # A=1, B=0, Cin=1 -> Cout=1
+    vector { A=1, B=0, CarryIn=1, CarryInNeg=0 }
+        -> { CarryOut==1, CarryOutNeg==0 };
+
+    # A=0, B=1, Cin=1 -> Cout=1
+    vector { A=0, B=1, CarryIn=1, CarryInNeg=0 }
+        -> { CarryOut==1, CarryOutNeg==0 };
+
+    # A=1, B=1, Cin=1 -> Cout=1
+    vector { A=1, B=1, CarryIn=1, CarryInNeg=0 }
+        -> { CarryOut==1, CarryOutNeg==0 };
+}
