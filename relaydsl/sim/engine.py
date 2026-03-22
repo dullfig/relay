@@ -138,6 +138,12 @@ class SimEngine:
         """
         max_iterations = 100
         for iteration in range(max_iterations):
+            # 0. Release cap drivers before resolution
+            # Caps are passive - they re-assert in step 3 if needed
+            for cap in self.capacitors.values():
+                if cap.terminal in self.nets:
+                    self.nets[cap.terminal].release(f"cap:{cap.name}")
+
             # 1. Collect all closed contacts
             closed = list(self.connections)  # permanent wires
 
@@ -154,7 +160,33 @@ class SimEngine:
             old_states = {name: net.state for name, net in self.nets.items()}
             resolver.resolve_all(closed)
 
-            # 3. Apply diode logic
+            # 3. Apply capacitor logic
+            # Caps are passive storage: they yield to active drivers.
+            # To detect external drivers in the connected group (union-find),
+            # we temporarily remove the cap driver and re-resolve.
+            for cap in self.capacitors.values():
+                if cap.terminal in self.nets:
+                    term_net = self.nets[cap.terminal]
+
+                    # Remove cap driver temporarily
+                    term_net.release(f"cap:{cap.name}")
+
+                    # Re-resolve without cap to see if anything else drives
+                    resolver2 = NetResolver(self.nets)
+                    resolver2.resolve_all(closed)
+                    ext_state = term_net.state
+
+                    if ext_state in (WireState.HIGH, WireState.LOW):
+                        # External driver present - cap charges
+                        cap.write(ext_state, self.time)
+                    else:
+                        # No external driver - cap drives stored charge
+                        stored = cap.read(self.time)
+                        if stored != WireState.FLOAT:
+                            term_net.drive(f"cap:{cap.name}", stored)
+                        # else: cap is discharged, stays released
+
+            # 4. Apply diode logic
             for diode in self.diodes.values():
                 anode_state = self.nets[diode.anode_net].state
                 cathode_net = self.nets[diode.cathode_net]
@@ -163,10 +195,10 @@ class SimEngine:
                 else:
                     cathode_net.release(f"diode:{diode.name}")
 
-            # 4. Re-resolve after diode updates
+            # 5. Re-resolve after cap/diode updates
             resolver.resolve_all(closed)
 
-            # 5. Check relay coils and update energized state
+            # 6. Check relay coils and update energized state
             changed = False
             for relay in self.relays.values():
                 coil_state = self.nets[relay.coil_net].state

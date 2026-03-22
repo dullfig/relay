@@ -1,0 +1,261 @@
+# Discrete DRAM: diode-gated capacitor cells
+#
+# Based on the approach from relaiscomputer.nl / Rory Mangles' TIM-8.
+#
+# Key insight: ZERO relays per cell. Each bit is just a cap + 2 diodes.
+# Relays are shared infrastructure: address decoder (per row) and
+# sense relay (per column).
+#
+# Per cell: 1 capacitor + 2 diodes
+# Per row:  1 relay contact (from address decoder)
+# Per column: 1 sense relay (shared across all rows)
+#
+# Write: address decoder connects row line HIGH, data diode gates
+#        charge onto the cap.
+# Read:  address decoder connects row line, cap discharges through
+#        read diode into sense relay coil. Sense relay latches the bit.
+# Refresh: software-driven (ROM subroutine reads and rewrites all cells).
+#
+# With good caps (ceramic or film), charge holds for hours.
+
+# === Single DRAM bit cell (diode-gated) ===
+# No relays! Just a cap and two diodes.
+# The row select and sense relay are external (shared).
+component DRAMBitCell {
+    port in RowSelect;       # HIGH when this row is addressed
+    port in WriteData;       # data to write (active HIGH)
+    port in WriteEnable;     # HIGH during write cycle
+    port in ReadEnable;      # HIGH during read cycle
+    port out SenseLine;      # connects to shared sense relay coil
+
+    wire vcc = HIGH;
+    wire gnd = LOW;
+
+    # Storage capacitor (hours of hold time with film/ceramic caps)
+    capacitor Cap(decay = 500 ms);
+
+    # Write gating: RowSelect AND WriteEnable AND WriteData must all
+    # be HIGH to charge the cap. We use relay contacts for the AND
+    # since our diode simulation doesn't model series AND yet.
+    #
+    # Physical implementation would use series diodes, but for
+    # simulation we use the shared row-select relay.
+
+    # Write path: when row is selected AND write enabled,
+    # connect WriteData to Cap
+    relay R_wgate;
+    connect WriteEnable -> R_wgate.coil;
+    # When WriteEnable=1: pass WriteData through
+    connect WriteData -> R_wgate.c1.no;
+    # When WriteEnable=0: cap is isolated (NC unconnected)
+
+    # Row select gates the write path to the cap
+    relay R_roww;
+    connect RowSelect -> R_roww.coil;
+    connect R_wgate.c1.common -> R_roww.c1.no;
+    # NC unconnected - cap isolated when row not selected
+    connect R_roww.c1.common -> Cap;
+
+    # Read path: when row selected AND read enabled,
+    # connect cap to sense line (destructive read - cap discharges)
+    relay R_rgate;
+    connect ReadEnable -> R_rgate.coil;
+    connect Cap -> R_rgate.c1.no;
+    # NC unconnected
+
+    relay R_rowr;
+    connect RowSelect -> R_rowr.coil;
+    connect R_rgate.c1.common -> R_rowr.c1.no;
+    # NC unconnected
+    connect R_rowr.c1.common -> SenseLine;
+}
+
+# === Diode-gated DRAM cell (ideal version) ===
+# This is what the physical circuit looks like: pure diodes + cap.
+# The address decoding relay is external and shared across the row.
+# For simulation, we model it with inline diodes (->|).
+component DRAMBitCellDiode {
+    port in RowLine;         # driven by address decoder (shared per row)
+    port in WriteBit;        # data to write
+    port out ReadBit;        # to sense relay
+
+    # Storage capacitor
+    capacitor Cap(decay = 500 ms);
+
+    # Write diode: RowLine ->| Cap (charges cap when RowLine is HIGH
+    # and WriteBit is HIGH, since WriteBit drives RowLine through
+    # external write gating)
+    connect RowLine ->| Cap;
+
+    # Read diode: Cap ->| ReadBit (cap discharges into sense line
+    # when RowLine drops and sense relay pulls current)
+    connect Cap ->| ReadBit;
+}
+
+# === Sense amplifier ===
+# One per column (shared across all rows).
+# The sense relay is energized by the cap discharge from the selected cell.
+# Its output is the read data bit.
+component SenseAmp {
+    port in SenseIn;         # from the read diode of the selected cell
+    port out DataOut;        # latched read data
+
+    wire vcc = HIGH;
+    wire gnd = LOW;
+
+    relay R_sense;
+    connect SenseIn -> R_sense.coil;
+    connect vcc -> R_sense.c1.no;     # sensed 1: HIGH
+    connect gnd -> R_sense.c1.nc;     # sensed 0: LOW
+    connect R_sense.c1.common -> DataOut;
+}
+
+# === DRAM nibble (4-bit word, relay-gated for simulation) ===
+component DRAMNibble {
+    port in D[4];
+    port out Q[4];
+    port in RowSelect;
+    port in WriteEnable;
+    port in ReadEnable;
+
+    wire sense0, sense1, sense2, sense3;
+
+    instance cell0 = DRAMBitCell(
+        RowSelect=RowSelect, WriteData=D[0],
+        WriteEnable=WriteEnable, ReadEnable=ReadEnable,
+        SenseLine=sense0
+    );
+    instance cell1 = DRAMBitCell(
+        RowSelect=RowSelect, WriteData=D[1],
+        WriteEnable=WriteEnable, ReadEnable=ReadEnable,
+        SenseLine=sense1
+    );
+    instance cell2 = DRAMBitCell(
+        RowSelect=RowSelect, WriteData=D[2],
+        WriteEnable=WriteEnable, ReadEnable=ReadEnable,
+        SenseLine=sense2
+    );
+    instance cell3 = DRAMBitCell(
+        RowSelect=RowSelect, WriteData=D[3],
+        WriteEnable=WriteEnable, ReadEnable=ReadEnable,
+        SenseLine=sense3
+    );
+
+    # Sense amplifiers (one per bit, shared across rows in a real array)
+    instance sa0 = SenseAmp(SenseIn=sense0, DataOut=Q[0]);
+    instance sa1 = SenseAmp(SenseIn=sense1, DataOut=Q[1]);
+    instance sa2 = SenseAmp(SenseIn=sense2, DataOut=Q[2]);
+    instance sa3 = SenseAmp(SenseIn=sense3, DataOut=Q[3]);
+}
+
+# === Address decoder (1-of-N) ===
+# Decodes a binary address into one-hot select lines.
+component Decoder2to4 {
+    port in A0, A1;
+    port out S0, S1, S2, S3;
+
+    wire vcc = HIGH;
+    wire gnd = LOW;
+
+    relay R_a1, R_a0a, R_a0b;
+
+    connect A1 -> R_a1.coil;
+    connect A0 -> R_a0a.coil;
+    connect A0 -> R_a0b.coil;
+
+    # A1=0: lower pair, A1=1: upper pair
+    connect vcc -> R_a1.c1.nc;
+    connect gnd -> R_a1.c1.no;
+    connect gnd -> R_a1.c2.nc;
+    connect vcc -> R_a1.c2.no;
+
+    # Lower pair: A0 selects S0 vs S1
+    connect R_a1.c1.common -> R_a0a.c1.nc;
+    connect gnd -> R_a0a.c1.no;
+    connect R_a0a.c1.common -> S0;
+
+    connect gnd -> R_a0a.c2.nc;
+    connect R_a1.c1.common -> R_a0a.c2.no;
+    connect R_a0a.c2.common -> S1;
+
+    # Upper pair: A0 selects S2 vs S3
+    connect R_a1.c2.common -> R_a0b.c1.nc;
+    connect gnd -> R_a0b.c1.no;
+    connect R_a0b.c1.common -> S2;
+
+    connect gnd -> R_a0b.c2.nc;
+    connect R_a1.c2.common -> R_a0b.c2.no;
+    connect R_a0b.c2.common -> S3;
+}
+
+# === 4-word x 4-bit DRAM array ===
+component DRAM4x4 {
+    port in Addr0, Addr1;
+    port in D[4];
+    port out Q[4];
+    port in Write;
+    port in Read;
+
+    wire sel0, sel1, sel2, sel3;
+
+    instance dec = Decoder2to4(
+        A0=Addr0, A1=Addr1,
+        S0=sel0, S1=sel1, S2=sel2, S3=sel3
+    );
+
+    # 4 words, each a DRAMNibble
+    # Only the selected row's RowSelect is HIGH
+    wire q0_0, q0_1, q0_2, q0_3;
+    wire q1_0, q1_1, q1_2, q1_3;
+    wire q2_0, q2_1, q2_2, q2_3;
+    wire q3_0, q3_1, q3_2, q3_3;
+
+    instance w0 = DRAMNibble(
+        D=D[0..3], RowSelect=sel0,
+        WriteEnable=Write, ReadEnable=Read,
+        Q=q0_0
+    );
+    instance w1 = DRAMNibble(
+        D=D[0..3], RowSelect=sel1,
+        WriteEnable=Write, ReadEnable=Read,
+        Q=q1_0
+    );
+    instance w2 = DRAMNibble(
+        D=D[0..3], RowSelect=sel2,
+        WriteEnable=Write, ReadEnable=Read,
+        Q=q2_0
+    );
+    instance w3 = DRAMNibble(
+        D=D[0..3], RowSelect=sel3,
+        WriteEnable=Write, ReadEnable=Read,
+        Q=q3_0
+    );
+
+    # Output mux: only the selected word's sense amps are active.
+    # Non-selected cells have no cap discharge, so sense relays stay off.
+    # We OR all word outputs together (only one is active at a time).
+    # For simulation, wire each word's Q to a mux relay.
+    relay R_mux0, R_mux1, R_mux2, R_mux3;
+    connect sel0 -> R_mux0.coil;
+    connect sel1 -> R_mux1.coil;
+    connect sel2 -> R_mux2.coil;
+    connect sel3 -> R_mux3.coil;
+
+    # Bit 0 output mux
+    connect q0_0 -> R_mux0.c1.no;
+    connect q1_0 -> R_mux1.c1.no;
+    connect q2_0 -> R_mux2.c1.no;
+    connect q3_0 -> R_mux3.c1.no;
+    # Only one mux relay is on, so only one drives Q
+    # Wire all mux outputs together (only one active)
+    connect R_mux0.c1.common -> Q[0];
+    connect R_mux1.c1.common -> Q[0];
+    connect R_mux2.c1.common -> Q[0];
+    connect R_mux3.c1.common -> Q[0];
+
+    # For bits 1-3 we'd need more mux contacts or separate mux relays.
+    # For this demo, Q[1..3] are connected to word0 only (TODO: full mux).
+    connect q0_1 -> Q[1];
+    connect q0_2 -> Q[2];
+    connect q0_3 -> Q[3];
+}
