@@ -34,6 +34,17 @@
 - **Cell footprint**: ~7.6mm x 2.0mm (single-sided) or ~2.5mm x 1.8mm (double-sided, cap top, diodes bottom)
 - **Cost**: ~$0.09/cap (10K reel), ~$0.02/diode
 
+### Board Address Selection
+
+Each memory board has a DIP switch setting its page address. The board
+compares the high address bits against its DIP switch and only activates
+when they match. No central memory controller needed.
+
+- 4-bit DIP: 16 pages x 256 nibbles = 4K address space
+- 8-bit DIP: 256 pages x 256 nibbles = 64K address space
+- Page comparator: XNOR per bit (1 relay each) + diode AND = ~4 relays per board
+- Adding memory: set DIP switches, plug in board, done
+
 ### Memory Board Options (100mm x 100mm target)
 
 | Layout | Words | Boards for 1K | Board size | Fit? |
