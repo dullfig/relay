@@ -26,12 +26,29 @@
 
 ## DRAM Cell
 
-- **Capacitor**: 22uF 16V ceramic (1210 package, 3.2mm x 2.5mm)
+- **Capacitor**: Murata GRT21BC81C226ME13 (22uF 16V ceramic, 0805 package, 2.0mm x 1.25mm)
 - **Diodes**: 2x per cell (0603 package, 1.6mm x 0.8mm)
 - **Relays per cell**: 0 (diode-gated, per relaiscomputer.nl design)
 - **Hold time**: ~14 hours above pickup with ceramic dielectric
 - **Refresh**: software (optional, ceramic caps hold for hours)
-- **Cell footprint**: ~8mm x 3mm
+- **Cell footprint**: ~7.6mm x 2.0mm (single-sided) or ~2.5mm x 1.8mm (double-sided, cap top, diodes bottom)
+- **Cost**: ~$0.09/cap (10K reel), ~$0.02/diode
+
+### Memory Board Options (100mm x 100mm target)
+
+| Layout | Words | Boards for 1K | Board size | Fit? |
+|--------|-------|---------------|------------|------|
+| 256 x 4-bit (tight) | 256 | 4 | 99mm x 87mm | YES |
+| 128 x 4-bit (comfortable) | 128 | 8 | 84mm x 74mm | YES |
+
+### Memory Cost (1K x 4-bit)
+
+| Component | Quantity | Unit cost | Total |
+|-----------|----------|-----------|-------|
+| 22uF caps | 4,096 | $0.09 | $369 |
+| Diodes | 8,192 | $0.02 | $164 |
+| PCBs | 4-8 | $8 | $32-64 |
+| **Total** | | | **~$565-597** |
 
 ## Clock
 
