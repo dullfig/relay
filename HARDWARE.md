@@ -93,6 +93,30 @@ when they match. No central memory controller needed.
 
 Target: 100mm x 100mm per board (JLCPCB cheapest tier)
 
+## Boot / Program Loading
+
+- LOAD button: hold to load from paper tape into DRAM
+- Clock auto-steps tape reader, one nibble per tick (~30Hz)
+- 256 nibbles loads in ~8.5 seconds
+- Tape switches connect directly to data bus
+- Address counter (shared with PC) auto-increments
+- End-of-tape: all-holes pattern detected, stops loading
+- Hardware cost: 1 button + ~3 relays
+- After loading: press RUN to execute from address 0
+
+## Front Panel Controls
+
+| Control | Function |
+|---------|----------|
+| LOAD | Hold to load program from tape |
+| RUN | Start execution from address 0 |
+| 0-9 | Digit entry |
+| . | Decimal point |
+| + - x / | Arithmetic operations (hardwired in microcode) |
+| = | Compute result |
+| FUNC | Enter function number, run stored program |
+| CLEAR | Clear display/entry |
+
 ## Estimated Relay Count
 
 | Board | Relays |
