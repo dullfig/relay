@@ -32,7 +32,8 @@ component DRAMBitCell {
     wire gnd = LOW;
 
     # Storage capacitor (hours of hold time with film/ceramic caps)
-    capacitor Cap(decay = 500 ms);
+    # 22uF 16V ceramic (1210 package) - holds charge for hours
+    capacitor Cap(decay = 50000 ms);
 
     # Write gating: RowSelect AND WriteEnable AND WriteData must all
     # be HIGH to charge the cap. We use relay contacts for the AND
@@ -80,7 +81,8 @@ component DRAMBitCellDiode {
     port out ReadBit;        # to sense relay
 
     # Storage capacitor
-    capacitor Cap(decay = 500 ms);
+    # 22uF 16V ceramic (1210 package) - holds charge for hours
+    capacitor Cap(decay = 50000 ms);
 
     # Write diode: RowLine ->| Cap (charges cap when RowLine is HIGH
     # and WriteBit is HIGH, since WriteBit drives RowLine through

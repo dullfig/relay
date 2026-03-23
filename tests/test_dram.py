@@ -80,8 +80,8 @@ class TestDRAMBitCell:
         # Right after write
         assert cap.read(engine.time) == WireState.HIGH
 
-        # After decay (500ms)
-        assert cap.read(engine.time + 1000.0) == WireState.FLOAT
+        # After decay (50000ms for ceramic caps)
+        assert cap.read(engine.time + 60000.0) == WireState.FLOAT
 
 
 class TestDecoder:

@@ -24,10 +24,10 @@ class RelayModel:
     contacts: list[Contact] = field(default_factory=list)  # typically 2 for DPDT
     energized: bool = False
 
-    # Timing parameters (ms)
-    energize_delay: float = 10.0
-    deenergize_delay: float = 8.0
-    bounce_duration: float = 2.0
+    # Timing parameters (ms) - defaults from AGN20012 datasheet
+    energize_delay: float = 4.0
+    deenergize_delay: float = 4.0
+    bounce_duration: float = 1.5
 
     def closed_contacts(self) -> list[tuple[str, str]]:
         """Return list of (net_a, net_b) pairs for currently closed contacts."""

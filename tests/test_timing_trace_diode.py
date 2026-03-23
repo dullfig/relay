@@ -11,7 +11,7 @@ class TestTiming:
         assert convert_time(10, "ms") == 10.0
         assert convert_time(1000, "us") == 1.0
         assert convert_time(1_000_000, "ns") == 1.0
-        assert convert_time(1, "ticks") == 10.0
+        assert convert_time(1, "ticks") == 6.0  # 1 tick = 1 AGN cycle = 6ms
 
     def test_bounce_schedule(self):
         timing = RelayTiming(bounce_count=3, bounce_interval=1.0)
