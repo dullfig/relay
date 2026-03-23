@@ -114,7 +114,7 @@ Target: 100mm x 100mm per board (JLCPCB cheapest tier)
 | . | Decimal point |
 | + - x / | Arithmetic operations (hardwired in microcode) |
 | = | Compute result |
-| FUNC | Enter function number, run stored program |
+| FUNC | Enter function number, run stored program (FUNC 0 = set time) |
 | CLEAR | Clear display/entry |
 
 ## Estimated Relay Count
