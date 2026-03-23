@@ -104,27 +104,67 @@ Target: 100mm x 100mm per board (JLCPCB cheapest tier)
 - Hardware cost: 1 button + ~3 relays
 - After loading: press RUN to execute from address 0
 
-## Front Panel Controls
+## Front Panel
+
+### Three Independent Systems Sharing the Display
+
+The front panel has three autonomous relay circuits, each running independently:
+
+1. **Clock** - always running, BCD counters ticking, drives display when idle
+2. **Keyboard/display** - autonomous hardware, handles digit entry and shift register
+3. **CPU** - only active when triggered (=, FUNC, RUN)
+
+Display arbitration (2 relays):
+- CPU active? -> show CPU output register
+- Keyboard has input? -> show keyboard buffer
+- Otherwise -> show clock
+
+### Keyboard Circuit
+
+Autonomous hardware state machine (CPU is halted during input):
+- Key down -> debounce (1 relay stage, ~4ms)
+- Encode to BCD (diode matrix, instant)
+- Shift display register left one nibble
+- Load new digit at rightmost position
+- Wait for key up -> idle
+- Total handler time: ~18ms (3 relay stages), faster than any typist
+
+Display/input register: 8 x 4-bit shift register using latching relays (AGN21012).
+Serial shift: 7 clock pulses ripple digits left (~28ms, invisible to user).
+~40 latching relays for the register, ~6 for the state machine.
+
+### Keyboard Layout (20 keys)
+
+```
+[7] [8] [9] [/]
+[4] [5] [6] [x]
+[1] [2] [3] [-]
+[0] [.] [=] [+]
+[FUNC] [CLR] [<] [>]
+```
+
+Encoder: 5x4 diode matrix (~40 diodes, zero relays, 1 strobe relay).
+Switches: microswitches (fast enough at 18ms handler, no mechanical latching needed).
+
+### Machine Controls (separate from keypad)
 
 | Control | Function |
 |---------|----------|
 | LOAD | Hold to load program from tape |
 | RUN | Start execution from address 0 |
-| 0-9 | Digit entry |
-| . | Decimal point |
-| + - x / | Arithmetic operations (hardwired in microcode) |
-| = | Compute result |
-| FUNC | Enter function number, run stored program (FUNC 0 = set time) |
-| CLEAR | Clear display/entry |
 
 ## Estimated Relay Count
 
-| Board | Relays |
-|-------|--------|
-| ALU (dual-mode, 2 nibbles) | ~64 |
-| Registers | ~20 |
-| Control/sequencer | ~30 |
-| Bus interface | ~15 |
-| I/O | ~10 |
-| Memory (decoder + sense) | ~32 |
-| **Total** | **~171** |
+| Board | Relays | Type |
+|-------|--------|------|
+| ALU (dual-mode, 2 nibbles) | ~64 | AGN20012 |
+| Registers | ~20 | AGN20012 |
+| Control/sequencer | ~30 | AGN20012 |
+| Bus interface | ~15 | AGN20012 |
+| I/O (tape stepper + encode) | ~10 | AGN20012 |
+| Memory (decoder + sense) | ~32 | AGN20012 |
+| Keyboard/display register | ~46 | AGN21012 (latching) |
+| RTC counters | ~17 | AGN21012 (latching) |
+| Display arbitration | ~3 | AGN20012 |
+| Boot loader | ~3 | AGN20012 |
+| **Total** | **~240** | |
