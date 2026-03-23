@@ -63,10 +63,25 @@ when they match. No central memory controller needed.
 
 ## Clock
 
-- Source: 60Hz mains or neon relaxation oscillator
-- Division: neon lamp cascade (divide-by-2 per stage)
+- Source: 60Hz mains
+- Prescaler: mod-60 counter (7 latching relays) for exact 1Hz tick
+- Division: neon lamp cascade (divide-by-2 per stage) for system clock
 - System clock: ~30 Hz (one divider stage from 60Hz)
 - Clock cycle: ~26ms (4 relay stages worst case at 6ms/stage + margin)
+
+## Real-Time Clock
+
+- Display: HH:MM on 4 of the 8 nixie tubes (shared with calculator)
+- Seconds: 1Hz neon lamp from divider chain, mounted as colon separator
+- Counter: BCD decade/mod-6 counters using AGN21012 latching relays
+  - Minutes ones: 4 bits (decade, reset on 10)
+  - Minutes tens: 3 bits (reset on 6)
+  - Hours ones: 4 bits (decade, reset on 24 with tens)
+  - Hours tens: 2 bits (reset on 24 with ones)
+  - Total: ~17 latching relays + reset logic
+- Output: BCD counter feeds same diode decoder matrix as calculator
+- Switching: 1 relay selects nixie input (calculator result vs clock)
+- Latching relays (AGN21012): same family/footprint as AGN20012, hold state with zero power
 
 ## Display
 
