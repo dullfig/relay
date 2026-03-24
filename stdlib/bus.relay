@@ -1,0 +1,228 @@
+# Bus Multiplexers
+#
+# The telephone operators of the CPU. Microcode control lines
+# select who talks and who listens on the 4-bit data bus
+# and the 12-bit address bus.
+#
+# All muxes are relay contact trees: 3-bit binary select
+# drives a cascade of DPDT relays, routing one of 8 (or 4)
+# sources to the output. No logic, just switching.
+#
+# R-50 Bus:
+#   Data bus:    4 bits  (shared by all boards)
+#   Address bus: 12 bits (shared by all boards)
+#   Control:     24 bits (from microcode)
+#   Clock, Reset, Halt, Power, Ground, Spares
+
+# === 2:1 Mux (1 bit) ===
+# Fundamental building block. One relay contact selects A or B.
+component Mux2_1 {
+    port in A, B;
+    port in Sel;        # 0=A, 1=B
+    port out Y;
+
+    relay R_sel;
+    connect Sel -> R_sel.coil;
+    connect A -> R_sel.c1.nc;    # Sel=0: output A
+    connect B -> R_sel.c1.no;    # Sel=1: output B
+    connect R_sel.c1.common -> Y;
+}
+
+# === 4:1 Mux (1 bit) ===
+# Two levels of 2:1 muxes.
+component Mux4_1 {
+    port in D0, D1, D2, D3;
+    port in S0, S1;     # 2-bit select
+    port out Y;
+
+    wire mid0, mid1;
+
+    # Level 1: S0 selects within pairs
+    instance m0 = Mux2_1(A=D0, B=D1, Sel=S0, Y=mid0);
+    instance m1 = Mux2_1(A=D2, B=D3, Sel=S0, Y=mid1);
+
+    # Level 2: S1 selects between pairs
+    instance m2 = Mux2_1(A=mid0, B=mid1, Sel=S1, Y=Y);
+}
+
+# === 8:1 Mux (1 bit) ===
+# Three levels of 2:1 muxes.
+component Mux8_1 {
+    port in D0, D1, D2, D3, D4, D5, D6, D7;
+    port in S0, S1, S2;  # 3-bit select
+    port out Y;
+
+    wire mid0, mid1;
+
+    # Level 1-2: two 4:1 muxes
+    instance lo = Mux4_1(D0=D0, D1=D1, D2=D2, D3=D3,
+                          S0=S0, S1=S1, Y=mid0);
+    instance hi = Mux4_1(D0=D4, D1=D5, D2=D6, D3=D7,
+                          S0=S0, S1=S1, Y=mid1);
+
+    # Level 3: S2 selects between halves
+    instance top = Mux2_1(A=mid0, B=mid1, Sel=S2, Y=Y);
+}
+
+# === 4-bit 8:1 Data Bus Source Mux ===
+# Selects one of 8 nibble sources onto the 4-bit data bus.
+# BUS_SRC[2:0] control lines from microcode select the source.
+#
+# Sources:
+#   000 = Accumulator
+#   001 = X register
+#   010 = Memory read data
+#   011 = Immediate (from operand register)
+#   100 = PC high nibble
+#   101 = PC mid nibble
+#   106 = PC low nibble
+#   111 = ALU/shifter result
+component BusSrcMux {
+    port in Acc[4];
+    port in XReg[4];
+    port in MemData[4];
+    port in Immediate[4];
+    port in PCHigh[4];
+    port in PCMid[4];
+    port in PCLow[4];
+    port in ALUResult[4];
+    port in Sel[3];      # BUS_SRC select from microcode
+    port out Bus[4];     # data bus output
+
+    # One 8:1 mux per data bit
+    instance mux0 = Mux8_1(
+        D0=Acc[0], D1=XReg[0], D2=MemData[0], D3=Immediate[0],
+        D4=PCHigh[0], D5=PCMid[0], D6=PCLow[0], D7=ALUResult[0],
+        S0=Sel[0], S1=Sel[1], S2=Sel[2], Y=Bus[0]
+    );
+    instance mux1 = Mux8_1(
+        D0=Acc[1], D1=XReg[1], D2=MemData[1], D3=Immediate[1],
+        D4=PCHigh[1], D5=PCMid[1], D6=PCLow[1], D7=ALUResult[1],
+        S0=Sel[0], S1=Sel[1], S2=Sel[2], Y=Bus[1]
+    );
+    instance mux2 = Mux8_1(
+        D0=Acc[2], D1=XReg[2], D2=MemData[2], D3=Immediate[2],
+        D4=PCHigh[2], D5=PCMid[2], D6=PCLow[2], D7=ALUResult[2],
+        S0=Sel[0], S1=Sel[1], S2=Sel[2], Y=Bus[2]
+    );
+    instance mux3 = Mux8_1(
+        D0=Acc[3], D1=XReg[3], D2=MemData[3], D3=Immediate[3],
+        D4=PCHigh[3], D5=PCMid[3], D6=PCLow[3], D7=ALUResult[3],
+        S0=Sel[0], S1=Sel[1], S2=Sel[2], Y=Bus[3]
+    );
+}
+
+# === 4-bit Destination Demux ===
+# Routes the data bus to one of 8 destinations.
+# BUS_DST[2:0] selects which register latches the bus value.
+# Each destination has a LOAD line; the demux activates exactly one.
+#
+# Destinations:
+#   000 = Accumulator
+#   001 = X register
+#   010 = Memory write data
+#   011 = Temp/operand register
+#   100 = PC high nibble
+#   101 = PC mid nibble
+#   110 = PC low nibble
+#   111 = Flags (direct load)
+component BusDstDemux {
+    port in Sel[3];       # BUS_DST select from microcode
+    port in Enable;       # must be HIGH to activate any destination
+    port out Load0;       # Accumulator load
+    port out Load1;       # X register load
+    port out Load2;       # Memory write
+    port out Load3;       # Temp register load
+    port out Load4;       # PC high load
+    port out Load5;       # PC mid load
+    port out Load6;       # PC low load
+    port out Load7;       # Flags load
+
+    wire vcc = HIGH;
+    wire gnd = LOW;
+
+    # 3-to-8 decoder using relay tree.
+    # Each relay routes its input (common) to one of two outputs (NC/NO).
+    # Signal flows: active -> S2 -> S1 -> S0 -> exactly one Load line.
+    relay R_en, R_s2, R_s1a, R_s1b, R_s0a, R_s0b, R_s0c, R_s0d;
+
+    connect Enable -> R_en.coil;
+    connect Sel[2] -> R_s2.coil;
+    connect Sel[1] -> R_s1a.coil;
+    connect Sel[1] -> R_s1b.coil;
+    connect Sel[0] -> R_s0a.coil;
+    connect Sel[0] -> R_s0b.coil;
+    connect Sel[0] -> R_s0c.coil;
+    connect Sel[0] -> R_s0d.coil;
+
+    # Enable gate: common=vcc, output on NO when enabled
+    wire active;
+    connect vcc -> R_en.c1.common;
+    connect R_en.c1.no -> active;
+    # NC unconnected - disabled = no signal
+
+    # Level 1: S2 routes active to one of two halves
+    wire half0, half1;
+    connect active -> R_s2.c1.common;
+    connect R_s2.c1.nc -> half0;     # S2=0: lower half
+    connect R_s2.c1.no -> half1;     # S2=1: upper half
+
+    # Level 2: S1 routes each half to one of two quarters
+    wire q0, q1, q2, q3;
+    connect half0 -> R_s1a.c1.common;
+    connect R_s1a.c1.nc -> q0;       # 00x
+    connect R_s1a.c1.no -> q1;       # 01x
+    connect half1 -> R_s1b.c1.common;
+    connect R_s1b.c1.nc -> q2;       # 10x
+    connect R_s1b.c1.no -> q3;       # 11x
+
+    # Level 3: S0 routes each quarter to final output
+    connect q0 -> R_s0a.c1.common;
+    connect R_s0a.c1.nc -> Load0;    # 000
+    connect R_s0a.c1.no -> Load1;    # 001
+    connect q1 -> R_s0b.c1.common;
+    connect R_s0b.c1.nc -> Load2;    # 010
+    connect R_s0b.c1.no -> Load3;    # 011
+    connect q2 -> R_s0c.c1.common;
+    connect R_s0c.c1.nc -> Load4;    # 100
+    connect R_s0c.c1.no -> Load5;    # 101
+    connect q3 -> R_s0d.c1.common;
+    connect R_s0d.c1.nc -> Load6;    # 110
+    connect R_s0d.c1.no -> Load7;    # 111
+}
+
+# === 12-bit 4:1 Address Bus Source Mux ===
+# Selects one of 4 address sources onto the 12-bit address bus.
+# ADDR_SRC[1:0] from microcode selects the source.
+#
+# Sources:
+#   00 = PC (fetch/sequential)
+#   01 = Operand (ZP or absolute address from instruction)
+#   10 = Effective address (after indexing or indirect lookup)
+#   11 = Stack pointer (ZP address for JSR/RTS)
+component AddrSrcMux {
+    port in PC[4];           # actually 12 bits, but we mux 4 at a time
+    port in Operand[4];      # from instruction register
+    port in Effective[4];    # computed effective address
+    port in StackPtr[4];     # stack pointer value
+    port in Sel[2];          # ADDR_SRC select from microcode
+    port out Addr[4];        # address bus output (one nibble)
+
+    # One 4:1 mux per address bit
+    instance mux0 = Mux4_1(
+        D0=PC[0], D1=Operand[0], D2=Effective[0], D3=StackPtr[0],
+        S0=Sel[0], S1=Sel[1], Y=Addr[0]
+    );
+    instance mux1 = Mux4_1(
+        D0=PC[1], D1=Operand[1], D2=Effective[1], D3=StackPtr[1],
+        S0=Sel[0], S1=Sel[1], Y=Addr[1]
+    );
+    instance mux2 = Mux4_1(
+        D0=PC[2], D1=Operand[2], D2=Effective[2], D3=StackPtr[2],
+        S0=Sel[0], S1=Sel[1], Y=Addr[2]
+    );
+    instance mux3 = Mux4_1(
+        D0=PC[3], D1=Operand[3], D2=Effective[3], D3=StackPtr[3],
+        S0=Sel[0], S1=Sel[1], Y=Addr[3]
+    );
+}
