@@ -141,7 +141,7 @@ control the execute phase.
 
 ## Proposed Opcodes
 
-26 instructions. Each one is a microcode board.
+28 instructions. Each one is a microcode board (24 control lines x 8 steps).
 
 ### Core — Load / Store (4 boards)
 
@@ -164,49 +164,51 @@ control the execute phase.
 | 01001 | INC | Increment memory or accumulator (implicit mode) |
 | 01010 | DEC | Decrement memory or accumulator (implicit mode) |
 
-### Shifts (2 boards)
+### Shifts / Rotates (4 boards)
 
 | IIIII | Mnemonic | Description |
 |-------|----------|-------------|
-| 01011 | ASL | Arithmetic shift left (accumulator or memory) |
-| 01100 | LSR | Logical shift right (accumulator or memory) |
+| 01011 | ASL | Arithmetic shift left (bit 0 = 0, bit 3 -> carry) |
+| 01100 | LSR | Logical shift right (bit 3 = 0, bit 0 -> carry) |
+| 01101 | ROL | Rotate left through carry (bit 0 = carry, bit 3 -> carry) |
+| 01110 | ROR | Rotate right through carry (bit 3 = carry, bit 0 -> carry) |
 
 ### Branches (4 boards)
 
 | IIIII | Mnemonic | Description |
 |-------|----------|-------------|
-| 01101 | BEQ | Branch if zero flag set |
-| 01110 | BNE | Branch if zero flag clear |
-| 01111 | BCS | Branch if carry flag set |
-| 10000 | BCC | Branch if carry flag clear |
+| 01111 | BEQ | Branch if zero flag set |
+| 10000 | BNE | Branch if zero flag clear |
+| 10001 | BCS | Branch if carry flag set |
+| 10010 | BCC | Branch if carry flag clear |
 
 ### Control Flow (3 boards)
 
 | IIIII | Mnemonic | Description |
 |-------|----------|-------------|
-| 10001 | JMP | Unconditional jump |
-| 10010 | JSR | Jump to subroutine (push return address) |
-| 10011 | RTS | Return from subroutine (pull return address) |
+| 10011 | JMP | Unconditional jump |
+| 10100 | JSR | Jump to subroutine (push return address) |
+| 10101 | RTS | Return from subroutine (pull return address) |
 
 ### Flags (4 boards)
 
 | IIIII | Mnemonic | Description |
 |-------|----------|-------------|
-| 10100 | CLC | Clear carry flag |
-| 10101 | SEC | Set carry flag |
-| 10110 | CLD | Clear decimal flag (binary mode) |
-| 10111 | SED | Set decimal flag (BCD mode) |
+| 10110 | CLC | Clear carry flag |
+| 10111 | SEC | Set carry flag |
+| 11000 | CLD | Clear decimal flag (binary mode) |
+| 11001 | SED | Set decimal flag (BCD mode) |
 
 ### System (2 boards)
 
 | IIIII | Mnemonic | Description |
 |-------|----------|-------------|
-| 11000 | NOP | No operation (DONE immediately) |
-| 11001 | HLT | Halt the machine |
+| 11010 | NOP | No operation (DONE immediately) |
+| 11011 | HLT | Halt the machine |
 
 ### Unassigned
 
-IIIII 11010 through 11111 (6 slots) are reserved. Available for future
+IIIII 11100 through 11111 (4 slots) are reserved. Available for future
 use or for reclaiming invalid addressing mode combinations as bonus
 instructions.
 
@@ -230,6 +232,8 @@ combinations are meaningful:
 | DEC         |  x  |     | x  |  x  |      |       |      |          |
 | ASL         |  x  |     | x  |  x  |      |       |      |          |
 | LSR         |  x  |     | x  |  x  |      |       |      |          |
+| ROL         |  x  |     | x  |  x  |      |       |      |          |
+| ROR         |  x  |     | x  |  x  |      |       |      |          |
 | BEQ         |     |  x  |    |  x  |      |       |      |          |
 | BNE         |     |  x  |    |  x  |      |       |      |          |
 | BCS         |     |  x  |    |  x  |      |       |      |          |
@@ -251,8 +255,8 @@ Invalid combinations (blank cells) are treated as NOP.
 
 ## Not All Combinations Are Valid
 
-With 26 instructions x 8 addressing modes = 208 possible encodings, plus
-48 more from the 6 unassigned opcode slots, many combinations are
+With 28 instructions x 8 addressing modes = 224 possible encodings, plus
+32 more from the 4 unassigned opcode slots, many combinations are
 meaningless. Invalid combinations are treated as NOP (safe, simple, no
 extra logic needed).
 
@@ -273,6 +277,12 @@ extra logic needed).
   address computation is binary, both happen within a single operation.
 - **INC/DEC**: Added. Loop counters are the most common operation after
   load/store. Saves 2 instruction fetches per loop iteration.
+- **ROL/ROR**: Added. Rotate through carry enables multi-nibble shifts.
+  Same shifter hardware as ASL/LSR, one extra control line (ROTATE).
+  Zero additional relay cost.
+- **SUB via complement**: SUB is ADD + COMPLEMENT + SET_CARRY. No separate
+  subtractor hardware. CMP is SUB without storing. DEC is SUB #1.
+  The ALU is fundamentally just an adder + inverter + shifter.
 
 ## Open Questions
 
