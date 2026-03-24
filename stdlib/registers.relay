@@ -1,0 +1,161 @@
+# CPU Registers
+#
+# Hardware registers using AGN21012 latching relays.
+# These hold state with zero power - the answer stays on the nixies
+# even after the clock halts.
+#
+# Only the essential registers are in hardware:
+#   A  (accumulator)  - 4 bits, the primary working register
+#   X  (index)        - 4 bits, loop counter and array indexing
+#   PC (program ctr)  - 12 bits (3 nibbles), current instruction address
+#   F  (flags)        - 3 bits: Z (zero), C (carry), D (decimal mode)
+#
+# Everything else lives in zero page DRAM.
+# Zero page IS the extended register file.
+
+# === 4-bit latching register ===
+# Loads from data bus when LOAD is asserted.
+# Outputs to data bus when OUTPUT_EN is asserted.
+# Holds value with zero power (latching relay).
+component Reg4 {
+    port in D[4];            # data input bus
+    port out Q[4];           # data output (active when enabled)
+    port in Load;            # pulse to latch data from D
+    port in OutputEn;        # enable Q onto output bus
+
+    wire vcc = HIGH;
+    wire gnd = LOW;
+
+    # Bit 0
+    relay R_latch0;
+    connect Load -> R_latch0.coil;
+    connect D[0] -> R_latch0.c1.no;
+    # NC unconnected - holds previous value when not loading
+    # The latch stores the state in a feedback loop:
+    # When Load pulses, D[0] drives the storage relay.
+    # When Load drops, the storage relay holds via its own contact feedback.
+
+    # Storage element: SR flip-flop from two relays
+    # For simulation, we model this as a cap-based latch
+    # (in real hardware, latching relays hold state mechanically)
+    capacitor bit0(decay = 50000 ms);
+    connect R_latch0.c1.common -> bit0;
+
+    # Output gate: OutputEn connects stored value to Q
+    relay R_out0;
+    connect OutputEn -> R_out0.coil;
+    connect bit0 -> R_out0.c1.no;
+    connect gnd -> R_out0.c1.nc;
+    connect R_out0.c1.common -> Q[0];
+
+    # Bit 1
+    relay R_latch1;
+    connect Load -> R_latch1.coil;
+    connect D[1] -> R_latch1.c1.no;
+    capacitor bit1(decay = 50000 ms);
+    connect R_latch1.c1.common -> bit1;
+    relay R_out1;
+    connect OutputEn -> R_out1.coil;
+    connect bit1 -> R_out1.c1.no;
+    connect gnd -> R_out1.c1.nc;
+    connect R_out1.c1.common -> Q[1];
+
+    # Bit 2
+    relay R_latch2;
+    connect Load -> R_latch2.coil;
+    connect D[2] -> R_latch2.c1.no;
+    capacitor bit2(decay = 50000 ms);
+    connect R_latch2.c1.common -> bit2;
+    relay R_out2;
+    connect OutputEn -> R_out2.coil;
+    connect bit2 -> R_out2.c1.no;
+    connect gnd -> R_out2.c1.nc;
+    connect R_out2.c1.common -> Q[2];
+
+    # Bit 3
+    relay R_latch3;
+    connect Load -> R_latch3.coil;
+    connect D[3] -> R_latch3.c1.no;
+    capacitor bit3(decay = 50000 ms);
+    connect R_latch3.c1.common -> bit3;
+    relay R_out3;
+    connect OutputEn -> R_out3.coil;
+    connect bit3 -> R_out3.c1.no;
+    connect gnd -> R_out3.c1.nc;
+    connect R_out3.c1.common -> Q[3];
+}
+
+# === Flags register ===
+# 3 individual flag bits, each independently loadable.
+component FlagsReg {
+    port in ZeroIn, CarryIn, DecimalIn;     # flag input values
+    port out ZeroOut, CarryOut, DecimalOut;  # flag output values
+    port in LoadZC;     # load Zero and Carry from ALU result
+    port in LoadD;      # load Decimal from SED/CLD instruction
+
+    wire vcc = HIGH;
+    wire gnd = LOW;
+
+    # Zero flag
+    relay R_latchZ;
+    connect LoadZC -> R_latchZ.coil;
+    connect ZeroIn -> R_latchZ.c1.no;
+    capacitor flagZ(decay = 50000 ms);
+    connect R_latchZ.c1.common -> flagZ;
+    connect flagZ -> ZeroOut;
+
+    # Carry flag
+    relay R_latchC;
+    connect LoadZC -> R_latchC.coil;
+    connect CarryIn -> R_latchC.c1.no;
+    capacitor flagC(decay = 50000 ms);
+    connect R_latchC.c1.common -> flagC;
+    connect flagC -> CarryOut;
+
+    # Decimal mode flag
+    relay R_latchD;
+    connect LoadD -> R_latchD.coil;
+    connect DecimalIn -> R_latchD.c1.no;
+    capacitor flagD(decay = 50000 ms);
+    connect R_latchD.c1.common -> flagD;
+    connect flagD -> DecimalOut;
+}
+
+# === 12-bit Program Counter ===
+# Three 4-bit registers chained. Can load in parallel (JMP)
+# or increment by a specified amount (after fetch).
+component ProgramCounter {
+    port in D[4];           # data input (for parallel load, one nibble at a time)
+    port out Q[4];          # current nibble output
+    port in LoadHigh;       # load D into PC[11:8]
+    port in LoadMid;        # load D into PC[7:4]
+    port in LoadLow;        # load D into PC[3:0]
+    port in SelectHigh;     # output PC[11:8]
+    port in SelectMid;      # output PC[7:4]
+    port in SelectLow;      # output PC[3:0]
+
+    # Three 4-bit registers for the 12-bit PC
+    instance pcHigh = Reg4(D=D[0..3], Load=LoadHigh);
+    instance pcMid  = Reg4(D=D[0..3], Load=LoadMid);
+    instance pcLow  = Reg4(D=D[0..3], Load=LoadLow);
+
+    # Output mux: select which nibble drives Q
+    # Only one select line should be active at a time
+    wire qh0, qh1, qh2, qh3;
+    wire qm0, qm1, qm2, qm3;
+    wire ql0, ql1, ql2, ql3;
+
+    instance pcHigh2 = Reg4(D=D[0..3], Load=LoadHigh, Q=qh0,
+        OutputEn=SelectHigh);
+    instance pcMid2  = Reg4(D=D[0..3], Load=LoadMid, Q=qm0,
+        OutputEn=SelectMid);
+    instance pcLow2  = Reg4(D=D[0..3], Load=LoadLow, Q=ql0,
+        OutputEn=SelectLow);
+
+    # TODO: the output mux needs proper wiring - for now
+    # the three Reg4 instances gate their outputs independently.
+    # Only one SelectXxx should be asserted at a time.
+    # The Q outputs should be OR'd together onto the output bus.
+    # In relay hardware: the non-selected Reg4 outputs are LOW (gnd via NC),
+    # so a wired-OR (diode OR) combines them onto Q.
+}
