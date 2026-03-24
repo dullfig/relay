@@ -141,7 +141,7 @@ control the execute phase.
 
 ## Proposed Opcodes
 
-22 instructions. Each one is a microcode board.
+26 instructions. Each one is a microcode board.
 
 ### Core — Load / Store (4 boards)
 
@@ -152,7 +152,7 @@ control the execute phase.
 | 00010 | LDX | Load X register from memory |
 | 00011 | STX | Store X register to memory |
 
-### Arithmetic / Logic (5 boards)
+### Arithmetic / Logic (7 boards)
 
 | IIIII | Mnemonic | Description |
 |-------|----------|-------------|
@@ -161,48 +161,52 @@ control the execute phase.
 | 00110 | AND | Bitwise AND with accumulator |
 | 00111 | ORA | Bitwise OR with accumulator |
 | 01000 | CMP | Compare (subtract without storing, flags only) |
+| 01001 | INC | Increment memory or accumulator (implicit mode) |
+| 01010 | DEC | Decrement memory or accumulator (implicit mode) |
 
 ### Shifts (2 boards)
 
 | IIIII | Mnemonic | Description |
 |-------|----------|-------------|
-| 01001 | ASL | Arithmetic shift left (accumulator or memory) |
-| 01010 | LSR | Logical shift right (accumulator or memory) |
+| 01011 | ASL | Arithmetic shift left (accumulator or memory) |
+| 01100 | LSR | Logical shift right (accumulator or memory) |
 
 ### Branches (4 boards)
 
 | IIIII | Mnemonic | Description |
 |-------|----------|-------------|
-| 01011 | BEQ | Branch if zero flag set |
-| 01100 | BNE | Branch if zero flag clear |
-| 01101 | BCS | Branch if carry flag set |
-| 01110 | BCC | Branch if carry flag clear |
+| 01101 | BEQ | Branch if zero flag set |
+| 01110 | BNE | Branch if zero flag clear |
+| 01111 | BCS | Branch if carry flag set |
+| 10000 | BCC | Branch if carry flag clear |
 
 ### Control Flow (3 boards)
 
 | IIIII | Mnemonic | Description |
 |-------|----------|-------------|
-| 01111 | JMP | Unconditional jump |
-| 10000 | JSR | Jump to subroutine (push return address) |
-| 10001 | RTS | Return from subroutine (pull return address) |
+| 10001 | JMP | Unconditional jump |
+| 10010 | JSR | Jump to subroutine (push return address) |
+| 10011 | RTS | Return from subroutine (pull return address) |
 
-### Flags (2 boards)
+### Flags (4 boards)
 
 | IIIII | Mnemonic | Description |
 |-------|----------|-------------|
-| 10010 | CLC | Clear carry flag |
-| 10011 | SEC | Set carry flag |
+| 10100 | CLC | Clear carry flag |
+| 10101 | SEC | Set carry flag |
+| 10110 | CLD | Clear decimal flag (binary mode) |
+| 10111 | SED | Set decimal flag (BCD mode) |
 
 ### System (2 boards)
 
 | IIIII | Mnemonic | Description |
 |-------|----------|-------------|
-| 10100 | NOP | No operation (DONE immediately) |
-| 10101 | HLT | Halt the machine |
+| 11000 | NOP | No operation (DONE immediately) |
+| 11001 | HLT | Halt the machine |
 
 ### Unassigned
 
-IIIII 10110 through 11111 (10 slots) are reserved. Available for future
+IIIII 11010 through 11111 (6 slots) are reserved. Available for future
 use or for reclaiming invalid addressing mode combinations as bonus
 instructions.
 
@@ -222,6 +226,8 @@ combinations are meaningful:
 | AND         |     |  x  | x  |  x  |  x   |   x   |  x   |    x     |
 | ORA         |     |  x  | x  |  x  |  x   |   x   |  x   |    x     |
 | CMP         |     |  x  | x  |  x  |  x   |   x   |  x   |    x     |
+| INC         |  x  |     | x  |  x  |      |       |      |          |
+| DEC         |  x  |     | x  |  x  |      |       |      |          |
 | ASL         |  x  |     | x  |  x  |      |       |      |          |
 | LSR         |  x  |     | x  |  x  |      |       |      |          |
 | BEQ         |     |  x  |    |  x  |      |       |      |          |
@@ -233,6 +239,8 @@ combinations are meaningful:
 | RTS         |  x  |     |    |     |      |       |      |          |
 | CLC         |  x  |     |    |     |      |       |      |          |
 | SEC         |  x  |     |    |     |      |       |      |          |
+| CLD         |  x  |     |    |     |      |       |      |          |
+| SED         |  x  |     |    |     |      |       |      |          |
 | NOP         |  x  |     |    |     |      |       |      |          |
 | HLT         |  x  |     |    |     |      |       |      |          |
 
@@ -243,24 +251,31 @@ Invalid combinations (blank cells) are treated as NOP.
 
 ## Not All Combinations Are Valid
 
-With 22 instructions x 8 addressing modes = 176 possible encodings, plus
-80 more from the 10 unassigned opcode slots, many combinations are
+With 26 instructions x 8 addressing modes = 208 possible encodings, plus
+48 more from the 6 unassigned opcode slots, many combinations are
 meaningless. Invalid combinations are treated as NOP (safe, simple, no
 extra logic needed).
 
+## Design Decisions
+
+- **Register set**: A + X + flags (Z, C, D). Sufficient for a calculator.
+  Y register deferred — easy to add later using spare opcode slots
+  (LDY/STY) and reusing AAA=100/101 for ,Y addressing modes.
+- **Branch range**: Both. Immediate-mode branches give -8..+7 nibble range
+  for tight loops. Absolute-mode branches cover the full address space.
+  Same instruction, different addressing mode — zero extra hardware.
+- **Stack**: Software-managed. SP stored at fixed zero-page address. JSR/RTS
+  microcode reads/writes it. Costs 3-4 extra micro-ops per call/return
+  but saves ~16 relays vs hardware stack. Subroutine calls aren't the
+  hot path in calculator programs.
+- **BCD control**: SED/CLD instructions (added above). The calculator
+  must switch between BCD and binary mode in software — arithmetic is BCD,
+  address computation is binary, both happen within a single operation.
+- **INC/DEC**: Added. Loop counters are the most common operation after
+  load/store. Saves 2 instruction fetches per loop iteration.
+
 ## Open Questions
 
-- **Register set**: A/X plus flags — is that enough? A second index
-  register (Y) would cost 2 more microcode boards (LDY, STY) and extra
-  register hardware.
-- **Branch range**: Immediate-mode branches give -8..+7 nibble range.
-  Absolute-mode branches cover the full address space but cost 3 operand
-  nibbles. Is short-range branching useful enough, or should branches
-  always be absolute?
-- **Stack**: JSR/RTS imply a stack. Hardware stack (dedicated pointer +
-  small RAM region) or software-managed (fixed address in zero page)?
-- **BCD control**: SED/CLD to switch the ALU between binary and BCD mode,
-  or hardwire a toggle switch?
 - **Illegal opcode reuse**: Which invalid mode/instruction combos are worth
   reclaiming as bonus instructions?
 - **Physical form factor**: Grandfather clock style enclosure — vertical
