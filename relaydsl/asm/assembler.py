@@ -57,8 +57,10 @@ INSTRUCTIONS = {
     'SEC': (0b10111, {'imp'}),
     'CLD': (0b11000, {'imp'}),
     'SED': (0b11001, {'imp'}),
-    'NOP': (0b11010, {'imp'}),
-    'HLT': (0b11011, {'imp'}),
+    'INX': (0b11010, {'imp'}),
+    'DEX': (0b11011, {'imp'}),
+    'NOP': (0b11100, {'imp'}),
+    'HLT': (0b11101, {'imp'}),
 }
 
 # Addressing mode -> AAA bits

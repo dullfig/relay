@@ -141,7 +141,7 @@ control the execute phase.
 
 ## Proposed Opcodes
 
-28 instructions. Each one is a microcode board (24 control lines x 8 steps).
+30 instructions. Each one is a microcode board (24 control lines x 8 steps).
 
 ### Core — Load / Store (4 boards)
 
@@ -199,18 +199,23 @@ control the execute phase.
 | 11000 | CLD | Clear decimal flag (binary mode) |
 | 11001 | SED | Set decimal flag (BCD mode) |
 
+### X Register (2 boards)
+
+| IIIII | Mnemonic | Description |
+|-------|----------|-------------|
+| 11010 | INX | Increment X register |
+| 11011 | DEX | Decrement X register |
+
 ### System (2 boards)
 
 | IIIII | Mnemonic | Description |
 |-------|----------|-------------|
-| 11010 | NOP | No operation (DONE immediately) |
-| 11011 | HLT | Halt the machine |
+| 11100 | NOP | No operation (DONE immediately) |
+| 11101 | HLT | Halt the machine |
 
 ### Unassigned
 
-IIIII 11100 through 11111 (4 slots) are reserved. Available for future
-use or for reclaiming invalid addressing mode combinations as bonus
-instructions.
+IIIII 11110 through 11111 (2 slots) are reserved.
 
 ### Valid Addressing Modes per Instruction
 
@@ -245,6 +250,8 @@ combinations are meaningful:
 | SEC         |  x  |     |    |     |      |       |      |          |
 | CLD         |  x  |     |    |     |      |       |      |          |
 | SED         |  x  |     |    |     |      |       |      |          |
+| INX         |  x  |     |    |     |      |       |      |          |
+| DEX         |  x  |     |    |     |      |       |      |          |
 | NOP         |  x  |     |    |     |      |       |      |          |
 | HLT         |  x  |     |    |     |      |       |      |          |
 
@@ -255,8 +262,8 @@ Invalid combinations (blank cells) are treated as NOP.
 
 ## Not All Combinations Are Valid
 
-With 28 instructions x 8 addressing modes = 224 possible encodings, plus
-32 more from the 4 unassigned opcode slots, many combinations are
+With 30 instructions x 8 addressing modes = 240 possible encodings, plus
+16 more from the 2 unassigned opcode slots, many combinations are
 meaningless. Invalid combinations are treated as NOP (safe, simple, no
 extra logic needed).
 
@@ -280,6 +287,9 @@ extra logic needed).
 - **ROL/ROR**: Added. Rotate through carry enables multi-nibble shifts.
   Same shifter hardware as ASL/LSR, one extra control line (ROTATE).
   Zero additional relay cost.
+- **INX/DEX**: Added. Assembler revealed the pain of incrementing X via
+  STX/INC/LDX. Loop counters are critical. Implicit mode only, single
+  micro-step: X through adder with +1/-1, write back, set flags.
 - **SUB via complement**: SUB is ADD + COMPLEMENT + SET_CARRY. No separate
   subtractor hardware. CMP is SUB without storing. DEC is SUB #1.
   The ALU is fundamentally just an adder + inverter + shifter.

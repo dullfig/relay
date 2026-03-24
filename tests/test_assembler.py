@@ -9,13 +9,28 @@ class TestOpcodeEncoding:
         assert not errors, errors
         assert len(asm.instructions) == 1
         inst = asm.instructions[0]
-        # NOP = IIIII=11010, AAA=000 (implicit)
-        expected = (0b11010 << 3) | 0b000
+        # NOP = IIIII=11100, AAA=000 (implicit)
+        expected = (0b11100 << 3) | 0b000
         assert inst.opcode_byte == expected
         assert inst.nibbles == [expected >> 4, expected & 0xF]
 
     def test_hlt(self):
         asm, errors = assemble("HLT")
+        assert not errors, errors
+        inst = asm.instructions[0]
+        expected = (0b11101 << 3) | 0b000
+        assert inst.opcode_byte == expected
+
+    def test_inx(self):
+        asm, errors = assemble("INX")
+        assert not errors, errors
+        inst = asm.instructions[0]
+        expected = (0b11010 << 3) | 0b000
+        assert inst.opcode_byte == expected
+        assert inst.size == 2  # implicit, no operand
+
+    def test_dex(self):
+        asm, errors = assemble("DEX")
         assert not errors, errors
         inst = asm.instructions[0]
         expected = (0b11011 << 3) | 0b000
@@ -221,7 +236,7 @@ class TestPrograms:
         # BNE should branch back to loop
 
     def test_instruction_count(self):
-        """Verify all 28 mnemonics are recognized."""
+        """Verify all 30 mnemonics are recognized."""
         all_mnemonics = [
             'LDA', 'STA', 'LDX', 'STX',
             'ADD', 'SUB', 'AND', 'ORA', 'CMP', 'INC', 'DEC',
@@ -229,9 +244,10 @@ class TestPrograms:
             'BEQ', 'BNE', 'BCS', 'BCC',
             'JMP', 'JSR', 'RTS',
             'CLC', 'SEC', 'CLD', 'SED',
+            'INX', 'DEX',
             'NOP', 'HLT',
         ]
-        assert len(all_mnemonics) == 28
-        assert len(INSTRUCTIONS) == 28
+        assert len(all_mnemonics) == 30
+        assert len(INSTRUCTIONS) == 30
         for m in all_mnemonics:
             assert m in INSTRUCTIONS, f"Missing mnemonic: {m}"
