@@ -236,8 +236,9 @@ class TestPrograms:
         # BNE should branch back to loop
 
     def test_instruction_count(self):
-        """Verify all 30 mnemonics are recognized."""
-        all_mnemonics = [
+        """Verify all 30 base + 6 reclaimed mnemonics are recognized."""
+        from relaydsl.asm.assembler import RECLAIMED
+        base_mnemonics = [
             'LDA', 'STA', 'LDX', 'STX',
             'ADD', 'SUB', 'AND', 'ORA', 'CMP', 'INC', 'DEC',
             'ASL', 'LSR', 'ROL', 'ROR',
@@ -247,7 +248,32 @@ class TestPrograms:
             'INX', 'DEX',
             'NOP', 'HLT',
         ]
-        assert len(all_mnemonics) == 30
+        reclaimed_mnemonics = ['TAX', 'TXA', 'PHA', 'PLA', 'PHX', 'PLX']
+        assert len(base_mnemonics) == 30
         assert len(INSTRUCTIONS) == 30
-        for m in all_mnemonics:
-            assert m in INSTRUCTIONS, f"Missing mnemonic: {m}"
+        assert len(RECLAIMED) == 6
+        for m in base_mnemonics:
+            assert m in INSTRUCTIONS, f"Missing base mnemonic: {m}"
+        for m in reclaimed_mnemonics:
+            assert m in RECLAIMED, f"Missing reclaimed mnemonic: {m}"
+
+    def test_tax_txa(self):
+        """Test register transfer reclaimed opcodes."""
+        asm, errors = assemble("TAX")
+        assert not errors, errors
+        inst = asm.instructions[0]
+        assert inst.opcode_byte == 0b00001_000
+        assert inst.size == 2
+
+        asm, errors = assemble("TXA")
+        assert not errors, errors
+        inst = asm.instructions[0]
+        assert inst.opcode_byte == 0b00000_000
+        assert inst.size == 2
+
+    def test_push_pull(self):
+        """Test stack reclaimed opcodes."""
+        for mnem in ['PHA', 'PLA', 'PHX', 'PLX']:
+            asm, errors = assemble(mnem)
+            assert not errors, f"{mnem}: {errors}"
+            assert asm.instructions[0].size == 2

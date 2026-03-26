@@ -63,6 +63,17 @@ INSTRUCTIONS = {
     'HLT': (0b11101, {'imp'}),
 }
 
+# Reclaimed illegal opcodes: full 8-bit encoding -> mnemonic
+# These bypass the normal IIIII_AAA split via the mode override relay.
+RECLAIMED = {
+    'TXA': 0b00000_000,  # LDA implicit -> transfer X to A
+    'TAX': 0b00001_000,  # STA implicit -> transfer A to X
+    'PHA': 0b00001_001,  # STA immediate -> push A to stack
+    'PLA': 0b00010_000,  # LDX implicit -> pull A from stack
+    'PHX': 0b00011_000,  # STX implicit -> push X to stack
+    'PLX': 0b00011_001,  # STX immediate -> pull X from stack
+}
+
 # Addressing mode -> AAA bits
 MODE_BITS = {
     'imp':    0b000,
@@ -181,12 +192,19 @@ class Assembler:
 
             # Parse instruction to get size
             mnemonic, operand_str = self._split_instruction(stripped)
-            if mnemonic.upper() not in INSTRUCTIONS:
+            mnem_upper = mnemonic.upper()
+
+            # Check reclaimed opcodes first (implicit only, 2 nibbles)
+            if mnem_upper in RECLAIMED:
+                self.pc += 2
+                continue
+
+            if mnem_upper not in INSTRUCTIONS:
                 self.errors.append(AsmError(line_num,
                     f"Unknown mnemonic '{mnemonic}'"))
                 continue
 
-            mode = self._detect_mode(mnemonic.upper(), operand_str, line_num)
+            mode = self._detect_mode(mnem_upper, operand_str, line_num)
             if mode:
                 size = 2 + MODE_OPERAND_NIBBLES[mode]
                 self.pc += size
@@ -214,6 +232,22 @@ class Assembler:
 
             mnemonic, operand_str = self._split_instruction(stripped)
             mnemonic = mnemonic.upper()
+
+            # Handle reclaimed opcodes
+            if mnemonic in RECLAIMED:
+                opcode_byte = RECLAIMED[mnemonic]
+                inst = Instruction(
+                    address=self.pc,
+                    opcode_byte=opcode_byte,
+                    operand_nibbles=[],
+                    source_line=line_num,
+                    source_text=line.strip(),
+                    label=label,
+                )
+                self.instructions.append(inst)
+                self.pc += 2
+                continue
+
             if mnemonic not in INSTRUCTIONS:
                 continue  # already reported in pass 1
 

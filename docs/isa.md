@@ -258,14 +258,39 @@ combinations are meaningful:
 Branches use immediate mode for a 4-bit signed relative offset (-8..+7
 nibbles from PC) and absolute mode for a full 12-bit target address.
 
-Invalid combinations (blank cells) are treated as NOP.
+Invalid combinations (blank cells) are treated as NOP — unless reclaimed
+(see below).
 
-## Not All Combinations Are Valid
+## Illegal Opcode Reclamation
 
 With 30 instructions x 8 addressing modes = 240 possible encodings, plus
 16 more from the 2 unassigned opcode slots, many combinations are
-meaningless. Invalid combinations are treated as NOP (safe, simple, no
-extra logic needed).
+meaningless. Most are NOP, but some are reclaimed as bonus instructions.
+
+### Override mechanism (Option B)
+
+The 5+3 bit split (IIIII_AAA) is preserved. The instruction decoder and
+mode decoder remain separate, simple hardware. A single **mode override
+relay** disables the addressing mode logic for reclaimed encodings. When
+the instruction decoder recognizes a reclaimed opcode, it asserts the
+override, and the full 8-bit encoding routes to the reclaimed
+instruction's nanocode. One relay, no changes to the core decode logic.
+
+### Reclaimed Instructions
+
+| Encoding | Original | Reclaimed | Description |
+|----------|----------|-----------|-------------|
+| 00000_000 | LDA implicit (invalid) | TXA | Transfer X to accumulator |
+| 00001_000 | STA implicit (invalid) | TAX | Transfer accumulator to X |
+| 00001_001 | STA immediate (invalid) | PHA | Push accumulator to stack |
+| 00000_001 | LDA immediate (valid!) | — | Keep as LDA #imm |
+| 00010_000 | LDX implicit (invalid) | PLA | Pull accumulator from stack |
+| 00011_000 | STX implicit (invalid) | PHX | Push X to stack |
+| 00011_001 | STX immediate (invalid) | PLX | Pull X from stack |
+
+TAX and TXA are single nano-op instructions (route register through bus).
+PHA/PLA/PHX/PLX require reading/writing the software stack pointer in
+zero page — a few nano-ops each but no new hardware.
 
 ## Design Decisions
 
